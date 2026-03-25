@@ -1,1 +1,3 @@
 .env
+prediction_errors.log
+predictions.csv
