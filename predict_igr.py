@@ -48,6 +48,8 @@ def load_handle_to_party(handles_dir="twitter-handles"):
                     party = row.get("Party", "").strip()
 
                 if handle and party:
+                    # Normalize non-standard party codes (e.g., "ID" -> "I")
+                    party = {"ID": "I"}.get(party, party)
                     handle_to_party[handle.lower()] = party
 
     return handle_to_party
