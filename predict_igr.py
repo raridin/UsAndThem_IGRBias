@@ -6,6 +6,19 @@ import ast
 import re
 import random
 import argparse
+import time
+import logging
+
+from dotenv import load_dotenv
+from anthropic import Anthropic
+
+load_dotenv()
+
+logging.basicConfig(
+    filename="prediction_errors.log",
+    level=logging.ERROR,
+    format="%(asctime)s - %(message)s",
+)
 
 
 def load_handle_to_party(handles_dir="twitter-handles"):
@@ -162,6 +175,103 @@ def parse_args():
     return parser.parse_args()
 
 
+def mask_handle(tweet_text, handle):
+    """Replace all occurrences of the mentioned handle with @Doe (case-insensitive)."""
+    # Replace @handle variant
+    masked = re.sub(re.escape(f"@{handle}"), "@Doe", tweet_text, flags=re.IGNORECASE)
+    # Replace bare handle if it appears without @
+    masked = re.sub(r'(?<!\w)' + re.escape(handle) + r'(?!\w)', "Doe", masked, flags=re.IGNORECASE)
+    return masked
+
+
+def predict_tweet(client, tweet_text, mentioned_handle):
+    """Call Claude API to predict IGR and emotion for a tweet.
+
+    Returns dict with keys: igr, emotion, reasoning
+    Raises on API or parse errors.
+    """
+    masked = mask_handle(tweet_text, mentioned_handle)
+
+    prompt = f"""You are annotating tweets for a political communication research study.
+
+Given this tweet, determine:
+1. Interpersonal Group Relationship (IGR): Does the speaker appear to be talking about someone in their own group (In-Group) or a different group (Out-Group)? Base this only on linguistic cues, tone, and context.
+2. Emotion toward @Doe: Choose exactly one from: Admiration, Anger, Disgust, Fear, Interest, Joy, Sadness, Surprise, No Emotion.
+
+Tweet:
+"{masked}"
+
+Respond with ONLY this JSON, no other text:
+{{"igr": "In-Group" or "Out-Group", "emotion": "<one emotion>", "reasoning": "<1-2 sentences>"}}"""
+
+    message = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=256,
+        temperature=0,
+        messages=[{"role": "user", "content": prompt}],
+    )
+
+    raw = message.content[0].text.strip()
+    # Strip markdown code fences if present
+    if raw.startswith("```"):
+        raw = re.sub(r"^```(?:json)?\s*", "", raw)
+        raw = re.sub(r"\s*```$", "", raw)
+
+    result = json.loads(raw)
+    return {
+        "igr": result["igr"],
+        "emotion": result["emotion"],
+        "reasoning": result.get("reasoning", ""),
+    }
+
+
+def run_predictions(sample):
+    """Run Claude API predictions on sampled tweets with rate limiting.
+
+    Returns list of result dicts (one per successful prediction).
+    """
+    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    if not api_key:
+        print("ERROR: ANTHROPIC_API_KEY not set. Add it to .env or set as env var.")
+        return []
+
+    client = Anthropic(api_key=api_key)
+    results = []
+    errors = 0
+    total = len(sample)
+
+    for i, tweet in enumerate(sample):
+        print(f"  [{i + 1}/{total}] Processing tweet {tweet['tweet_id']}...")
+
+        try:
+            prediction = predict_tweet(client, tweet["tweet_text"], tweet["mentioned_handle"])
+
+            actual_igr = "In-Group" if tweet["tweeter_party"] == tweet["mentioned_party"] else "Out-Group"
+
+            results.append({
+                "tweet_id": tweet["tweet_id"],
+                "tweeter_handle": tweet["tweeter_handle"],
+                "mentioned_handle": tweet["mentioned_handle"],
+                "tweet_text": tweet["tweet_text"],
+                "predicted_igr": prediction["igr"],
+                "predicted_emotion": prediction["emotion"],
+                "actual_igr": actual_igr,
+                "model_reasoning": prediction["reasoning"],
+            })
+
+        except Exception as e:
+            errors += 1
+            logging.error(f"Tweet {tweet['tweet_id']}: {type(e).__name__}: {e}")
+            print(f"    ERROR: {e}")
+
+        # Rate limit — skip sleep after last tweet
+        if i < total - 1:
+            time.sleep(1.0)
+
+    print(f"\n  Completed: {len(results)} successful, {errors} errors")
+    return results
+
+
 if __name__ == "__main__":
     args = parse_args()
 
@@ -178,3 +288,7 @@ if __name__ == "__main__":
     sample_size = min(args.sample_size, len(eligible))
     sample = random.sample(eligible, sample_size)
     print(f"  Sampled {sample_size} tweets (seed={args.seed})")
+
+    # Predict
+    print("\nRunning predictions...")
+    results = run_predictions(sample)
