@@ -272,6 +272,55 @@ def run_predictions(sample):
     return results
 
 
+def write_csv(results, output_path):
+    """Write prediction results to CSV."""
+    fieldnames = [
+        "tweet_id", "tweeter_handle", "mentioned_handle", "tweet_text",
+        "predicted_igr", "predicted_emotion", "actual_igr", "model_reasoning",
+    ]
+    with open(output_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(results)
+
+
+def print_summary(results):
+    """Print accuracy summary stats."""
+    if not results:
+        return
+
+    total = len(results)
+    igr_correct = sum(1 for r in results if r["predicted_igr"] == r["actual_igr"])
+    igr_accuracy = igr_correct / total * 100
+
+    print(f"\n{'=' * 50}")
+    print(f"SUMMARY")
+    print(f"{'=' * 50}")
+    print(f"Total predictions: {total}")
+    print(f"IGR accuracy:      {igr_correct}/{total} ({igr_accuracy:.1f}%)")
+
+    # Emotion distribution
+    emotions = {}
+    for r in results:
+        e = r["predicted_emotion"]
+        emotions[e] = emotions.get(e, 0) + 1
+
+    print(f"\nEmotion distribution:")
+    for emotion, count in sorted(emotions.items(), key=lambda x: -x[1]):
+        print(f"  {emotion}: {count} ({count / total * 100:.1f}%)")
+
+    # IGR breakdown
+    in_group_pred = sum(1 for r in results if r["predicted_igr"] == "In-Group")
+    out_group_pred = total - in_group_pred
+    in_group_actual = sum(1 for r in results if r["actual_igr"] == "In-Group")
+    out_group_actual = total - in_group_actual
+
+    print(f"\nIGR breakdown:")
+    print(f"  Predicted: {in_group_pred} In-Group, {out_group_pred} Out-Group")
+    print(f"  Actual:    {in_group_actual} In-Group, {out_group_actual} Out-Group")
+    print(f"{'=' * 50}")
+
+
 if __name__ == "__main__":
     args = parse_args()
 
@@ -292,3 +341,11 @@ if __name__ == "__main__":
     # Predict
     print("\nRunning predictions...")
     results = run_predictions(sample)
+
+    # Output
+    if results:
+        write_csv(results, args.output)
+        print(f"\nPredictions saved to {args.output}")
+        print_summary(results)
+    else:
+        print("\nNo predictions generated. Check prediction_errors.log for details.")
