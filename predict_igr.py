@@ -4,6 +4,8 @@ import glob
 import json
 import ast
 import re
+import random
+import argparse
 
 
 def load_handle_to_party(handles_dir="twitter-handles"):
@@ -141,13 +143,38 @@ def scan_tweets(tweets_dir, handle_to_party):
     return eligible
 
 
-if __name__ == "__main__":
-    lookup = load_handle_to_party()
-    print(f"Loaded {len(lookup)} handles")
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Predict IGR and emotion for congressional tweets using Claude API"
+    )
+    parser.add_argument(
+        "--sample-size", type=int, default=50,
+        help="Number of tweets to sample (default: 50)"
+    )
+    parser.add_argument(
+        "--output", type=str, default="predictions.csv",
+        help="Output CSV path (default: predictions.csv)"
+    )
+    parser.add_argument(
+        "--seed", type=int, default=42,
+        help="Random seed for reproducibility (default: 42)"
+    )
+    return parser.parse_args()
 
+
+if __name__ == "__main__":
+    args = parse_args()
+
+    print("Loading handle-to-party lookup...")
+    lookup = load_handle_to_party()
+    print(f"  Loaded {len(lookup)} handles")
+
+    print("Scanning tweets for eligible mentions...")
     eligible = scan_tweets("tweets", lookup)
-    print(f"Found {len(eligible)} eligible tweets")
-    if eligible:
-        ex = eligible[0]
-        print(f"  Example: @{ex['tweeter_handle']} ({ex['tweeter_party']}) mentions @{ex['mentioned_handle']} ({ex['mentioned_party']})")
-        print(f"  Tweet: {ex['tweet_text'][:120]}...")
+    print(f"  Found {len(eligible)} eligible tweets")
+
+    # Sample
+    random.seed(args.seed)
+    sample_size = min(args.sample_size, len(eligible))
+    sample = random.sample(eligible, sample_size)
+    print(f"  Sampled {sample_size} tweets (seed={args.seed})")
