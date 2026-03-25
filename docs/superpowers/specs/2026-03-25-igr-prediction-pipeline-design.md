@@ -16,9 +16,9 @@ Three column format variants exist:
 
 | Sessions | Handle column | Party column | Notes |
 |----------|--------------|--------------|-------|
-| 110-114 | `twitter_handle` | `party` | Simple CSV |
-| 115 | `twitter_account` | `party` | Includes dw_nominate scores |
-| 116 | `twitter_handle` | `party` | Same as 110-114 |
+| 110-111 | `twitter_handle` | `party` | Simple CSV |
+| 112-115 | `twitter_account` | `party` | Includes dw_nominate scores |
+| 116 | — | — | **No party column — skip this file** |
 | 117 | `Link` (full URL) | `Party` | Handle extracted from URL tail; `Name` is "Last, First" |
 
 Deduplication: if a handle appears in multiple sessions with different parties, the latest session wins (iterate 110→117 in order).
