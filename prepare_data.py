@@ -129,6 +129,9 @@ def scan_tweets(handle_to_party):
                     continue
 
                 mentioned_handle = congress_mentions[0]
+                if mentioned_handle.lower() == username.lower():
+                    continue
+
                 mentioned_party = handle_to_party[mentioned_handle.lower()]
 
                 eligible.append({
