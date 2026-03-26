@@ -1,1 +1,4 @@
 .env
+.claude/
+docs/superpowers/
+claude_label/prediction_errors.log
