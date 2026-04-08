@@ -39,7 +39,7 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-CONDITIONS = ["zero-shot", "few-shot", "cot"]
+CONDITIONS = ["zero-shot", "few-shot", "cot-thinking"]
 MODEL = "claude-sonnet-4-6"
 MAX_TOKENS = 512
 TEMPERATURE = 0
@@ -91,6 +91,16 @@ FEW_SHOT_EXAMPLES = [
             "Admiration": False, "Anger": True, "Disgust": True, "Fear": False,
             "Interest": False, "Joy": False, "Sadness": False, "Surprise": False,
             "reasoning": "The speaker criticizes @Doe's vote as 'very disappointing', indicating opposition and out-group dynamics.",
+        },
+    },
+    {
+        "label": "neutral in-group (no emotion)",
+        "tweet": "Tomorrow I'm hosting a Spring Break reception with @Doe for Iowans visiting DC. More details here:  https://t.co/9MAIFCxCJd",
+        "answer": {
+            "igr": "In-Group",
+            "Admiration": False, "Anger": False, "Disgust": False, "Fear": False,
+            "Interest": False, "Joy": False, "Sadness": False, "Surprise": False,
+            "reasoning": "The speaker mentions @Doe in a purely informational announcement with no emotional language, but the co-hosting implies an in-group relationship.",
         },
     },
 ]
@@ -151,7 +161,7 @@ _TASK_FRAMING = """You are annotating tweets for a political communication resea
 
 Given a tweet, determine:
 1. Interpersonal Group Relationship (IGR): Does the speaker appear to be talking about someone in their own group (In-Group) or a different group (Out-Group)? Base this only on linguistic cues, tone, and context.
-2. Emotions toward @Doe: For each of the 8 Plutchik emotions below, indicate true or false. Multiple emotions can be true. If no emotion applies, mark all as false.
+2. Emotions toward @Doe: For each of the 8 Plutchik emotions below, indicate true or false. Multiple emotions can be true. IMPORTANT: Many tweets are purely informational or neutral — if no clear emotion is expressed toward @Doe, mark ALL emotions as false.
 
 Emotions: Admiration, Anger, Disgust, Fear, Interest, Joy, Sadness, Surprise"""
 
@@ -185,25 +195,21 @@ Respond with ONLY this JSON, no other text:
 {_JSON_SCHEMA}"""
 
 
-def build_cot_prompt(masked_tweet):
-    return f"""You are annotating tweets for a political communication research study.
-
-Given the following tweet, perform these steps:
-1. Identify the emotion(s) expressed toward @Doe from this list: Admiration, Anger, Disgust, Fear, Interest, Joy, Sadness, Surprise. Multiple can apply; none may apply.
-2. Based on those emotions and the overall tone, reason about whether @Doe appears to be in the speaker's in-group or out-group.
-3. Give your final classification.
+def build_cot_thinking_prompt(masked_tweet):
+    """Same task as zero-shot, but uses the API's native extended thinking."""
+    return f"""{_TASK_FRAMING}
 
 Tweet:
 "{masked_tweet}"
 
 Respond with ONLY this JSON, no other text:
-{{"step1_emotions": "<list the emotions you identified>", "step2_reasoning": "<your reasoning about in-group vs out-group>", "igr": "In-Group" or "Out-Group", "Admiration": true/false, "Anger": true/false, "Disgust": true/false, "Fear": true/false, "Interest": true/false, "Joy": true/false, "Sadness": true/false, "Surprise": true/false}}"""
+{_JSON_SCHEMA}"""
 
 
 PROMPT_BUILDERS = {
     "zero-shot": build_zero_shot_prompt,
     "few-shot": build_few_shot_prompt,
-    "cot": build_cot_prompt,
+    "cot-thinking": build_cot_thinking_prompt,
 }
 
 # ---------------------------------------------------------------------------
@@ -217,14 +223,27 @@ def predict_tweet(client, masked_tweet, condition, max_retries=5):
     """
     prompt = PROMPT_BUILDERS[condition](masked_tweet)
 
+    use_thinking = condition == "cot-thinking"
+
     for attempt in range(max_retries):
         try:
-            message = client.messages.create(
-                model=MODEL,
-                max_tokens=MAX_TOKENS,
-                temperature=TEMPERATURE,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            if use_thinking:
+                message = client.messages.create(
+                    model=MODEL,
+                    max_tokens=MAX_TOKENS + 1024,
+                    thinking={
+                        "type": "enabled",
+                        "budget_tokens": 1024,
+                    },
+                    messages=[{"role": "user", "content": prompt}],
+                )
+            else:
+                message = client.messages.create(
+                    model=MODEL,
+                    max_tokens=MAX_TOKENS,
+                    temperature=TEMPERATURE,
+                    messages=[{"role": "user", "content": prompt}],
+                )
             break
         except Exception as api_err:
             err_str = str(api_err)
@@ -236,7 +255,14 @@ def predict_tweet(client, masked_tweet, condition, max_retries=5):
             else:
                 raise
 
-    raw = message.content[0].text.strip()
+    # Extended thinking responses have thinking blocks before the text block
+    raw = None
+    for block in message.content:
+        if block.type == "text":
+            raw = block.text.strip()
+            break
+    if raw is None:
+        raise ValueError("No text block in API response")
     if raw.startswith("```"):
         raw = re.sub(r"^```(?:json)?\s*", "", raw)
         raw = re.sub(r"\s*```$", "", raw)
@@ -339,7 +365,7 @@ def parse_args():
     )
     parser.add_argument(
         "--condition", type=str, default="all",
-        choices=["zero-shot", "few-shot", "cot", "all"],
+        choices=["zero-shot", "few-shot", "cot-thinking", "all"],
         help="Prompting condition to run (default: all)",
     )
     parser.add_argument(
