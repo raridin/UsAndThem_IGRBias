@@ -1,8 +1,12 @@
-"""Predict IGR and Plutchik emotions for congressional tweets using Claude API.
+"""Predict IGR and Plutchik emotions for congressional tweets using OpenAI GPT.
 
 Usage:
-    python3 claude_label/predict_igr.py --condition all --split test
-    python3 claude_label/predict_igr.py --condition zero-shot --split dev
+    python3 gpt_label/predict_igr.py --condition all --split test
+    python3 gpt_label/predict_igr.py --condition zero-shot --split dev
+
+Setup:
+    pip install openai python-dotenv
+    Add OPENAI_API_KEY=sk-... to .env
 """
 
 import os
@@ -10,7 +14,6 @@ import sys
 import logging
 
 from dotenv import load_dotenv
-from anthropic import Anthropic
 
 # Allow imports from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -34,36 +37,37 @@ logging.basicConfig(
 )
 
 # ---------------------------------------------------------------------------
-# Claude-specific model config
+# GPT-specific model config
 # ---------------------------------------------------------------------------
-MODEL = "claude-sonnet-4-6"
+MODEL = "gpt-4o"  # TODO: confirm model name
 
 
 def predict_tweet(client, masked_tweet, condition):
-    """Call Claude API and return the raw response text."""
+    """Call OpenAI API and return the raw response text.
+
+    TODO: Implement this function.
+    - Use client.chat.completions.create()
+    - For cot-thinking: check if the model supports a reasoning mode,
+      otherwise fall back to the prompt-based CoT approach
+    """
     prompt = PROMPT_BUILDERS[condition](masked_tweet)
-    use_thinking = condition == "cot-thinking"
 
-    if use_thinking:
-        message = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS + 1024,
-            thinking={"type": "enabled", "budget_tokens": 1024},
-            messages=[{"role": "user", "content": prompt}],
-        )
-    else:
-        message = client.messages.create(
-            model=MODEL,
-            max_tokens=MAX_TOKENS,
-            temperature=TEMPERATURE,
-            messages=[{"role": "user", "content": prompt}],
-        )
+    # TODO: uncomment and implement
+    # response = client.chat.completions.create(
+    #     model=MODEL,
+    #     temperature=TEMPERATURE,
+    #     max_tokens=MAX_TOKENS,
+    #     messages=[
+    #         {"role": "system", "content": "You are a research annotation assistant."},
+    #         {"role": "user", "content": prompt},
+    #     ],
+    # )
+    # return response.choices[0].message.content
 
-    # Extended thinking responses have thinking blocks before the text block
-    for block in message.content:
-        if block.type == "text":
-            return block.text
-    raise ValueError("No text block in API response")
+    raise NotImplementedError(
+        "GPT predict_tweet not yet implemented. "
+        "See the TODO comments above for guidance."
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -73,9 +77,9 @@ def predict_tweet(client, masked_tweet, condition):
 if __name__ == "__main__":
     args = parse_args(SCRIPT_DIR)
 
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
+    api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        print("ERROR: ANTHROPIC_API_KEY not set. Add it to .env or set as env var.")
+        print("ERROR: OPENAI_API_KEY not set. Add it to .env or set as env var.")
         sys.exit(1)
 
     print("Loading gold standard labels...")
@@ -86,7 +90,11 @@ if __name__ == "__main__":
     tweet_texts = load_tweet_texts()
     print(f"  Loaded {len(tweet_texts)} tweet texts")
 
-    client = Anthropic(api_key=api_key)
+    # TODO: uncomment after pip install openai
+    # from openai import OpenAI
+    # client = OpenAI(api_key=api_key)
+    client = None
+
     conditions = CONDITIONS if args.condition == "all" else [args.condition]
 
     for condition in conditions:
