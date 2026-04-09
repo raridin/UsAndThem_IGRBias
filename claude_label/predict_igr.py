@@ -161,7 +161,7 @@ _TASK_FRAMING = """You are annotating tweets for a political communication resea
 
 Given a tweet, determine:
 1. Interpersonal Group Relationship (IGR): Does the speaker appear to be talking about someone in their own group (In-Group) or a different group (Out-Group)? Base this only on linguistic cues, tone, and context.
-2. Emotions toward @Doe: For each of the 8 Plutchik emotions below, indicate true or false. Multiple emotions can be true. IMPORTANT: Many tweets are purely informational or neutral — if no clear emotion is expressed toward @Doe, mark ALL emotions as false.
+2. Emotions toward @Doe: For each of the 8 Plutchik emotions below, indicate true or false. Multiple emotions can be true. if no clear emotion is expressed toward @Doe, mark ALL emotions as false.
 
 Emotions: Admiration, Anger, Disgust, Fear, Interest, Joy, Sadness, Surprise"""
 
