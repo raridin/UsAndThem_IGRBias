@@ -10,7 +10,8 @@ import sys
 import logging
 
 from dotenv import load_dotenv
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 # Allow imports from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -40,25 +41,33 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 # Gemini-specific model config
 # ---------------------------------------------------------------------------
-MODEL = "gemini-1.5-flash"
-
+MODEL = "gemini-2.5-flash"
 
 def predict_tweet(client, masked_tweet, condition):
     """Call Gemini API and return the raw response text."""
     prompt = PROMPT_BUILDERS[condition](masked_tweet)
 
-    response = client.generate_content(
-        prompt,
-        generation_config=genai.types.GenerationConfig(
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
             temperature=TEMPERATURE,
             max_output_tokens=MAX_TOKENS,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
         ),
     )
 
-    if not response or not response.text:
-        raise ValueError("Empty response from Gemini API")
+    # Safely access .text — blocked responses raise instead of returning None
+    try:
+        text = response.text
+    except Exception as e:
+        raise ValueError(f"Gemini blocked or empty response: {e}")
 
-    return response.text
+    # Guard against SDK returning non-string
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"Unexpected response type or empty text: {type(text)}")
+
+    return text
 
 
 # ---------------------------------------------------------------------------
@@ -73,8 +82,7 @@ if __name__ == "__main__":
         print("ERROR: GOOGLE_API_KEY not set. Add it to .env or set as env var.")
         sys.exit(1)
 
-    genai.configure(api_key=api_key)
-    client = genai.GenerativeModel(MODEL)
+    client = genai.Client(api_key=api_key)
 
     print("Loading gold standard labels...")
     gold_rows = load_gold_standard(split=args.split)
