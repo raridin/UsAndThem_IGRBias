@@ -39,35 +39,29 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 # GPT-specific model config
 # ---------------------------------------------------------------------------
-MODEL = "gpt-4o"  # TODO: confirm model name
+MODEL = "gpt-4o"
 
 
 def predict_tweet(client, masked_tweet, condition):
-    """Call OpenAI API and return the raw response text.
+    """Call OpenAI API and return the raw response text."""
 
-    TODO: Implement this function.
-    - Use client.chat.completions.create()
-    - For cot-thinking: check if the model supports a reasoning mode,
-      otherwise fall back to the prompt-based CoT approach
-    """
     prompt = PROMPT_BUILDERS[condition](masked_tweet)
 
-    # TODO: uncomment and implement
-    # response = client.chat.completions.create(
-    #     model=MODEL,
-    #     temperature=TEMPERATURE,
-    #     max_tokens=MAX_TOKENS,
-    #     messages=[
-    #         {"role": "system", "content": "You are a research annotation assistant."},
-    #         {"role": "user", "content": prompt},
-    #     ],
-    # )
-    # return response.choices[0].message.content
+    try:
+        response = client.chat.completions.create(
+            model=MODEL,
+            temperature=TEMPERATURE,
+            max_tokens=MAX_TOKENS,
+            messages=[
+                {"role": "system", "content": "You are a research annotation assistant."},
+                {"role": "user", "content": prompt},
+            ],
+        )
+        return response.choices[0].message.content
 
-    raise NotImplementedError(
-        "GPT predict_tweet not yet implemented. "
-        "See the TODO comments above for guidance."
-    )
+    except Exception as e:
+        logging.error(f"Error in predict_tweets: {e}")
+        return None
 
 
 # ---------------------------------------------------------------------------
@@ -90,10 +84,8 @@ if __name__ == "__main__":
     tweet_texts = load_tweet_texts()
     print(f"  Loaded {len(tweet_texts)} tweet texts")
 
-    # TODO: uncomment after pip install openai
-    # from openai import OpenAI
-    # client = OpenAI(api_key=api_key)
-    client = None
+    from openai import OpenAI
+    client = OpenAI(api_key=api_key)
 
     conditions = CONDITIONS if args.condition == "all" else [args.condition]
 
