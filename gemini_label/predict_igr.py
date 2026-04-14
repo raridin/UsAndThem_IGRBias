@@ -3,18 +3,15 @@
 Usage:
     python3 gemini_label/predict_igr.py --condition all --split test
     python3 gemini_label/predict_igr.py --condition zero-shot --split dev
-
-Setup:
-    pip install google-generativeai python-dotenv
-    Add GOOGLE_API_KEY=... to .env
 """
 
 import os
 import sys
 import logging
 
-import google.generativeai as genai
 from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 
 # Allow imports from project root
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,8 +19,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from shared.data import load_gold_standard, load_tweet_texts
 from shared.prompts import PROMPT_BUILDERS, CONDITIONS
 from shared.predict import (
-    run_predictions, write_csv, output_path_for_condition, parse_args,
-    MAX_TOKENS, TEMPERATURE,
+    run_predictions,
+    write_csv,
+    output_path_for_condition,
+    parse_args,
+    MAX_TOKENS,
+    TEMPERATURE,
 )
 
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -40,46 +41,35 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 # Gemini-specific model config
 # ---------------------------------------------------------------------------
-MODEL = "gemini-2.5-flash"   # fast + stable (you can switch to gemini-2.5-pro)
-
+MODEL = "gemini-2.5-flash"
 
 def predict_tweet(client, masked_tweet, condition):
-    base_prompt = PROMPT_BUILDERS[condition](masked_tweet)
+    """Call Gemini API and return the raw response text."""
+    prompt = PROMPT_BUILDERS[condition](masked_tweet)
 
-    #Force JSON output
-    strict_instruction = """
-Return ONLY valid JSON in this exact format:
-{
-  "igr": "<In-Group or Out-Group>",
-  "emotion": "<one of: Admiration, Anger, Disgust, Fear, Interest, Joy, Sadness, Surprise, No Emotion>",
-  "reasoning": "<1-2 sentences>"
-}
+    response = client.models.generate_content(
+        model=MODEL,
+        contents=prompt,
+        config=types.GenerateContentConfig(
+            temperature=TEMPERATURE,
+            max_output_tokens=MAX_TOKENS,
+            thinking_config=types.ThinkingConfig(thinking_budget=0),
+        ),
+    )
 
-Do NOT include any extra text.
-Do NOT use markdown.
-Do NOT explain anything outside JSON.
-"""
-
-    prompt = base_prompt + "\n\n" + strict_instruction
-
+    # Safely access .text — blocked responses raise instead of returning None
     try:
-        response = client.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=0,
-                max_output_tokens=MAX_TOKENS,
-            ),
-        )
-
-        if not response or not response.text:
-            logging.error(f"[{condition}] Empty response from Gemini")
-            return '{"igr": "Unknown", "emotion": "None", "reasoning": "No response"}'
-
-        return response.text.strip()
-
+        text = response.text
     except Exception as e:
-        logging.error(f"[{condition}] Error: {e}")
-        return '{"igr": "Unknown", "emotion": "None", "reasoning": "API failure"}'
+        raise ValueError(f"Gemini blocked or empty response: {e}")
+
+    # Guard against SDK returning non-string
+    if not isinstance(text, str) or not text.strip():
+        raise ValueError(f"Unexpected response type or empty text: {type(text)}")
+
+    return text
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -92,6 +82,8 @@ if __name__ == "__main__":
         print("ERROR: GOOGLE_API_KEY not set. Add it to .env or set as env var.")
         sys.exit(1)
 
+    client = genai.Client(api_key=api_key)
+
     print("Loading gold standard labels...")
     gold_rows = load_gold_standard(split=args.split)
     print(f"  Loaded {len(gold_rows)} gold standard tweets (split={args.split})")
@@ -100,10 +92,6 @@ if __name__ == "__main__":
     tweet_texts = load_tweet_texts()
     print(f"  Loaded {len(tweet_texts)} tweet texts")
 
-    #Initialize Gemini
-    genai.configure(api_key=api_key)
-    client = genai.GenerativeModel(MODEL)
-
     conditions = CONDITIONS if args.condition == "all" else [args.condition]
 
     for condition in conditions:
@@ -111,13 +99,7 @@ if __name__ == "__main__":
         print(f"# CONDITION: {condition} (model: {MODEL})")
         print(f"{'#' * 60}")
 
-        results = run_predictions(
-            gold_rows,
-            tweet_texts,
-            condition,
-            predict_tweet,
-            client
-        )
+        results = run_predictions(gold_rows, tweet_texts, condition, predict_tweet, client)
 
         if results:
             out_path = output_path_for_condition(condition, args.output_dir)
